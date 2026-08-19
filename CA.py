@@ -242,6 +242,51 @@ class PainelEmpilhado:
         fig.tight_layout(rect=(0, 0, 1, 0.97) if titulo else None)
         return fig, eixos
 
+    def gerar_comparativo(
+        self,
+        dados: dict[str, pd.DataFrame],
+        titulo: str = "",
+    ) -> tuple[Figure, "list[list]"]:
+        """Sobrepõe as curvas de todos os arquivos da pasta."""
+        if not dados:
+            raise ValueError(
+                "É necessário fornecer ao menos um arquivo para comparar.")
+
+        for df in dados.values():
+            self._validar_colunas(df)
+
+        n = len(self.series)
+        fig, eixos = plt.subplots(
+            nrows=n, ncols=1, sharex="col", squeeze=False,
+            figsize=(self.estilo.largura_fig,
+                     self.estilo.altura_por_linha * n if n > 1 else self.estilo.altura_1_linha),
+        )
+        cores = plt.get_cmap("tab10")
+        marcador = "o" if self.estilo.tamanho_marcador > 0 else None
+
+        for i, serie in enumerate(self.series):
+            ax = eixos[i][0]
+            for indice, (nome_arquivo, df) in enumerate(dados.items()):
+                ax.plot(
+                    df[self.coluna_x], df[serie.coluna_y],
+                    color=cores(indice % 10), marker=marcador,
+                    markersize=self.estilo.tamanho_marcador,
+                    linewidth=self.estilo.espessura_linha,
+                    label=Path(nome_arquivo).stem,
+                )
+            ax.set_ylabel(serie.rotulo, fontsize=self.estilo.tamanho_fonte)
+            self.estilo.aplicar_eixo(ax, unidade=serie.unidade)
+            ax.legend(fontsize=self.estilo.tamanho_fonte - 2)
+
+            if i < n - 1:
+                ax.tick_params(labelbottom=False)
+
+        eixos[-1][0].set_xlabel(
+            self.rotulo_x, fontsize=self.estilo.tamanho_fonte)
+        self.estilo.aplicar_figura(fig, titulo=titulo)
+        fig.tight_layout(rect=(0, 0, 1, 0.97) if titulo else None)
+        return fig, eixos
+
     def _validar_colunas(self, df: pd.DataFrame) -> None:
         """Valida se todas as colunas especificadas existem no DataFrame."""
         colunas_disponiveis = set(df.columns)
@@ -326,6 +371,8 @@ def analisar_argumentos(argv: Optional[Sequence[str]] = None) -> argparse.Namesp
                         help="Não abre a janela interativa (útil em lote)")
     parser.add_argument("--saida", default=".",
                         help="Pasta de saída para as imagens salvas")
+    parser.add_argument("--comparativo", action="store_true",
+                        help="Faz um gráfico comparativo de todas as curvas")
     return parser.parse_args(argv)
 
 
@@ -398,6 +445,30 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     pasta_saida = Path(args.saida)
     pasta_saida.mkdir(parents=True, exist_ok=True)
+
+    if args.comparativo:
+        try:
+            dados = {nome: carregador.carregar(nome) for nome in arquivos}
+            fig, _ = painel.gerar_comparativo(
+                dados,
+                titulo="Comparativo dos dados experimentais",
+            )
+
+            if not args.sem_salvar:
+                caminho = pasta_saida / "grafico_comparativo.png"
+                PainelEmpilhado.salvar(fig, caminho)
+                print(f"Gráfico comparativo salvo como '{caminho}'")
+
+            if not args.sem_exibir:
+                plt.show()
+
+            plt.close(fig)
+        except ValueError as e:
+            print("\nErro ao gerar o gráfico comparativo:")
+            print(e)
+            print(
+                "\nDica: Use --listar-colunas para descobrir os nomes exatos das colunas.\n")
+        return
 
     for nome_arquivo in arquivos:
         try:
